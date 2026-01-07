@@ -1,0 +1,10 @@
+gradio
+langchain-groq
+langchain-huggingface
+langchain-pinecone
+pinecone-client
+langchain-community
+python-dotenv
+pypdf
+docx2txt
+unstructured
