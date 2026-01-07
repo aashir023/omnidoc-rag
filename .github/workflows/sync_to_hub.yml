@@ -16,4 +16,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push https://aashir321:$HF_TOKEN@huggingface.co/spaces/aashir321/omnidoc-rag main
+          git push --force https://aashir321:$HF_TOKEN@huggingface.co/spaces/aashir321/omnidoc-rag main
