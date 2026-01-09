@@ -7,7 +7,7 @@ WORKDIR /app
 # 3. Create a non-root user (Required for Hugging Face Spaces)
 RUN useradd -m -u 1000 user
 
-# 4. Set environment variables for cache (Prevents permission errors when downloading models)
+# 4. Set environment variables to fix permission issues with Transformers
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
     TRANSFORMERS_CACHE=/home/user/.cache/huggingface \
@@ -29,7 +29,9 @@ RUN mkdir -p /home/user/.cache/huggingface
 # 9. Expose the port (Hugging Face expects 7860)
 EXPOSE 7860
 
-# 10. Run the app
-# --server.port=7860 tells Streamlit to use the HF port
-# --server.address=0.0.0.0 tells it to listen on all interfaces
-CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
+# 10. Run the app with CORS and XSRF disabled to fix the 403 Error
+CMD ["streamlit", "run", "app.py", \
+    "--server.port=7860", \
+    "--server.address=0.0.0.0", \
+    "--server.enableCORS=false", \
+    "--server.enableXsrfProtection=false"]
