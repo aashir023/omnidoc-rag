@@ -1,115 +1,126 @@
 import os
 from dotenv import load_dotenv
 
-# Load environment variables (for local testing)
 load_dotenv()
 
+# Loaders & Splitters
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
-
-# --- FIX IS HERE: Updated import path ---
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from langchain_huggingface import HuggingFaceInferenceAPIEmbeddings
+# Embeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+
+# LLM & Vector Store
 from langchain_groq import ChatGroq
 from langchain_pinecone import PineconeVectorStore
-from langchain.chains import create_retrieval_chain
+
+# Chains
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
 # --- CONFIGURATION ---
 INDEX_NAME = "omnidoc-rag"
 
-# 1. Setup Embeddings
-# Uses Hugging Face Inference API (Free, Cloud-based)
-embeddings = HuggingFaceInferenceAPIEmbeddings(
-    api_key=os.environ.get("HUGGINGFACEHUB_API_TOKEN"),
+embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-# 2. Setup LLM (Groq Llama-3)
 llm = ChatGroq(
     model="llama-3.1-8b-instant",
-    temperature=0,
-    max_tokens=None,
-    timeout=None,
-    max_retries=2,
+    temperature=0.0,
+    max_tokens=1024
 )
 
-def process_documents(files):
+def process_documents(file_paths):
     """
-    Takes a list of file paths, reads them, chunks them, and uploads to Pinecone.
+    Reads files from string paths and indexes them.
+    Returns the list of filenames processed.
     """
-    if not files:
-        return "No files provided."
+    if not file_paths:
+        return []
         
     documents = []
+    processed_names = []
     
-    for file in files:
-        if file.endswith('.pdf'):
-            loader = PyPDFLoader(file)
-        elif file.endswith('.docx'):
-            loader = Docx2txtLoader(file)
-        elif file.endswith('.txt'):
-            loader = TextLoader(file)
-        else:
-            continue 
+    for path in file_paths:
+        path = str(path)
+        file_name = os.path.basename(path)
+        
+        try:
+            if path.endswith('.pdf'):
+                loader = PyPDFLoader(path)
+            elif path.endswith('.docx'):
+                loader = Docx2txtLoader(path)
+            elif path.endswith('.txt'):
+                loader = TextLoader(path)
+            else:
+                continue 
             
-        documents.extend(loader.load())
+            loaded_docs = loader.load()
+            for doc in loaded_docs:
+                doc.metadata["source_name"] = file_name
+                
+            documents.extend(loaded_docs)
+            processed_names.append(file_name)
+        except Exception as e:
+            print(f"Error loading {file_name}: {e}")
 
     if not documents:
-        return "No valid documents found."
+        return []
 
-    # Chunking: Split text into manageble pieces
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    # Reduced chunk size slightly to isolate names/titles better
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
     splits = text_splitter.split_documents(documents)
 
-    # Upload to Pinecone
-    # This automatically converts text -> vectors -> stores in cloud
-    vectorstore = PineconeVectorStore.from_documents(
-        documents=splits,
-        embedding=embeddings,
-        index_name=INDEX_NAME
-    )
-    
-    return f"Successfully processed {len(splits)} chunks! Uploaded to Pinecone."
+    try:
+        PineconeVectorStore.from_documents(
+            documents=splits,
+            embedding=embeddings,
+            index_name=INDEX_NAME
+        )
+        return processed_names
+    except Exception as e:
+        raise Exception(f"Pinecone Error: {e}")
 
-def get_answer(query):
-    """
-    Searches Pinecone for context and asks the LLM.
-    """
-    # Connect to the existing Pinecone index
+def get_context_and_answer(query):
     vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
     
-    # Create the Retriever
-    retriever = vectorstore.as_retriever()
+    # 1. Search WIDER (Get top 10 candidates to ensure Title Page is caught)
+    docs_and_scores = vectorstore.similarity_search_with_score(query, k=10)
+    
+    # 2. Relaxed Filtering Logic
+    filtered_docs = []
+    if docs_and_scores:
+        docs_and_scores.sort(key=lambda x: x[1], reverse=True)
+        highest_score = docs_and_scores[0][1]
+        
+        for doc, score in docs_and_scores:
+            # RELAXED RULES:
+            # 1. Keep anything above 0.20 (captures sparse title pages)
+            # 2. OR keep it if it's very close to the best score
+            if score > 0.20:
+                filtered_docs.append(doc)
+    
+    # Fallback: If filtering failed, force keep the top 3
+    if not filtered_docs and docs_and_scores:
+        filtered_docs = [x[0] for x in docs_and_scores[:3]]
+    
+    # Cap at 6 docs max to prevent LLM confusion
+    filtered_docs = filtered_docs[:6]
 
-    # Define the "Personality" of the AI
+    # 3. Chain
     system_prompt = (
-        "You are an assistant for question-answering tasks. "
-        "Use the following pieces of retrieved context to answer "
-        "the question. If you don't know the answer, say that you "
-        "don't know. Use three sentences maximum and keep the "
-        "answer concise."
-        "\n\n"
-        "{context}"
+        "You are a strict research assistant. Use ONLY the provided context to answer. "
+        "If the answer is not in the context, say 'I cannot find the answer in the documents.' "
+        "Do not hallucinate.\n\n"
+        "Context:\n{context}"
     )
-
     prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            ("human", "{input}"),
-        ]
+        [("system", system_prompt), ("human", "{input}")]
     )
-
-    # Create the Chain
-    question_answer_chain = create_stuff_documents_chain(llm, prompt)
-    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-
-    # Run the chain
-    response = rag_chain.invoke({"input": query})
+    chain = create_stuff_documents_chain(llm, prompt)
     
-    answer = response["answer"]
-    # Extract sources safely
-    sources = list(set([doc.metadata.get("source", "Unknown") for doc in response["context"]]))
+    # 4. Generator
+    response_generator = chain.stream({"context": filtered_docs, "input": query})
     
-    return answer, sources
+    return filtered_docs, response_generator
