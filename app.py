@@ -48,10 +48,10 @@ with st.sidebar:
                         # Create, Write, Close (Crucial for Windows)
                         with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
                             tmp.write(file.getbuffer())
-                            tmp_path = tmp.name # Get the string path
+                            tmp_path = tmp.name 
                         
-                        # Now the file is closed, we can append the path
-                        temp_paths.append(tmp_path)
+                        # Store as (temp_path, original_name)
+                        temp_paths.append((tmp_path, file.name))
 
                     # 2. Process
                     st.write("🧠 Embedding content...")
@@ -67,7 +67,7 @@ with st.sidebar:
                     st.error(f"Processing Error: {e}")
                 finally:
                     # 4. Cleanup Temp Files
-                    for p in temp_paths:
+                    for p, _ in temp_paths:
                         if os.path.exists(p):
                             try:
                                 os.unlink(p)

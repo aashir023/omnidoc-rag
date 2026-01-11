@@ -42,9 +42,8 @@ def process_documents(file_paths):
     documents = []
     processed_names = []
     
-    for path in file_paths:
+    for path, original_name in file_paths:
         path = str(path)
-        file_name = os.path.basename(path)
         
         try:
             if path.endswith('.pdf'):
@@ -58,12 +57,12 @@ def process_documents(file_paths):
             
             loaded_docs = loader.load()
             for doc in loaded_docs:
-                doc.metadata["source_name"] = file_name
+                doc.metadata["source_name"] = original_name
                 
             documents.extend(loaded_docs)
-            processed_names.append(file_name)
+            processed_names.append(original_name)
         except Exception as e:
-            print(f"Error loading {file_name}: {e}")
+            print(f"Error loading {original_name}: {e}")
 
     if not documents:
         return []
@@ -100,13 +99,17 @@ def get_context_and_answer(query, active_filenames):
         filtered_docs = [doc for doc, score in docs_and_scores]
 
     # 3. Chain
-    system_prompt = ( # Refined system prompt
-        "You are a helpful assistant for question-answering tasks. "
-        "Use the following pieces of retrieved context to answer the question. "
-        "If you don't know the answer based on the context, just say that you "
-        "cannot find the answer in the provided documents. "
-        "Keep the answer concise, accurate, and directly relevant to the question. "
-        "Do not make up information or elaborate beyond the given context.\n\n"
+    system_prompt = (
+        "You are an expert document analyst. Your goal is to provide clear, synthesized, "
+        "and professional answers based strictly on the provided context.\n\n"
+        "### Guidelines:\n"
+        "1. **Synthesize, Don't Copy**: Do not simply paste chunks of text. Summarize "
+        "the information and present it in your own words while staying true to the facts.\n"
+        "2. **Formatting**: Use bullet points, bold text, and concise paragraphs to "
+        "make your response professional and easy to scan.\n"
+        "3. **Absence of Info**: If the answer is not in the provided documents, "
+        "say: 'I cannot find the answer in the documents.' Do not use outside knowledge.\n"
+        "4. **Tone**: Be professional, objective, and direct.\n\n"
         "Context:\n{context}"
     )
     prompt = ChatPromptTemplate.from_messages(
