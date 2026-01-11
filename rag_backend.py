@@ -82,11 +82,14 @@ def process_documents(file_paths):
     except Exception as e:
         raise Exception(f"Pinecone Error: {e}")
 
-def get_context_and_answer(query):
+def get_context_and_answer(query, active_filenames):
     vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
     
-    # 1. Search for candidates
-    docs_and_scores = vectorstore.similarity_search_with_score(query, k=6)
+    # Define metadata filter to only search active documents
+    search_filter = {"source_name": {"$in": active_filenames}} if active_filenames else None
+    
+    # 1. Search for candidates with filtering
+    docs_and_scores = vectorstore.similarity_search_with_score(query, k=6, filter=search_filter)
     
     # 2. Extract documents (Sorting by similarity) - Removed aggressive score filtering
     filtered_docs = []

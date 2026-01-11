@@ -106,7 +106,8 @@ if prompt := st.chat_input("Ask a question..."):
     with st.chat_message("assistant"):
         try:
             # Retrieve & Generate
-            retrieved_docs, response_stream = get_context_and_answer(prompt)
+            active_files = list(st.session_state.processed_files)
+            retrieved_docs, response_stream = get_context_and_answer(prompt, active_files)
             
             # Stream Text
             full_response = st.write_stream(response_stream)
