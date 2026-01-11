@@ -14,7 +14,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 from langchain_pinecone import PineconeVectorStore
 
-# Chains
+# Chains    
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -68,8 +68,8 @@ def process_documents(file_paths):
     if not documents:
         return []
 
-    # Reduced chunk size slightly to isolate names/titles better
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=600, chunk_overlap=100)
+    # Improved chunking for better context
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_documents(documents)
 
     try:
@@ -85,34 +85,25 @@ def process_documents(file_paths):
 def get_context_and_answer(query):
     vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
     
-    # 1. Search WIDER (Get top 10 candidates to ensure Title Page is caught)
-    docs_and_scores = vectorstore.similarity_search_with_score(query, k=10)
+    # 1. Search for candidates
+    docs_and_scores = vectorstore.similarity_search_with_score(query, k=6)
     
-    # 2. Relaxed Filtering Logic
+    # 2. Extract documents (Sorting by similarity) - Removed aggressive score filtering
     filtered_docs = []
     if docs_and_scores:
+        # Sort by score (higher is typically better for cosine similarity)
         docs_and_scores.sort(key=lambda x: x[1], reverse=True)
-        highest_score = docs_and_scores[0][1]
-        
-        for doc, score in docs_and_scores:
-            # RELAXED RULES:
-            # 1. Keep anything above 0.20 (captures sparse title pages)
-            # 2. OR keep it if it's very close to the best score
-            if score > 0.20:
-                filtered_docs.append(doc)
-    
-    # Fallback: If filtering failed, force keep the top 3
-    if not filtered_docs and docs_and_scores:
-        filtered_docs = [x[0] for x in docs_and_scores[:3]]
-    
-    # Cap at 6 docs max to prevent LLM confusion
-    filtered_docs = filtered_docs[:6]
+        # No score filtering applied, all retrieved documents are passed
+        filtered_docs = [doc for doc, score in docs_and_scores]
 
     # 3. Chain
-    system_prompt = (
-        "You are a strict research assistant. Use ONLY the provided context to answer. "
-        "If the answer is not in the context, say 'I cannot find the answer in the documents.' "
-        "Do not hallucinate.\n\n"
+    system_prompt = ( # Refined system prompt
+        "You are a helpful assistant for question-answering tasks. "
+        "Use the following pieces of retrieved context to answer the question. "
+        "If you don't know the answer based on the context, just say that you "
+        "cannot find the answer in the provided documents. "
+        "Keep the answer concise, accurate, and directly relevant to the question. "
+        "Do not make up information or elaborate beyond the given context.\n\n"
         "Context:\n{context}"
     )
     prompt = ChatPromptTemplate.from_messages(
