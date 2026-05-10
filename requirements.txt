@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
 langchain==0.3.7
 langchain-community==0.3.7
 langchain-core==0.3.19
@@ -6,7 +8,11 @@ langchain-pinecone==0.2.0
 langchain-huggingface==0.1.2
 sentence-transformers
 pinecone-client
-streamlit
 python-dotenv
 pypdf
 docx2txt
+fastapi
+uvicorn[standard]
+loguru
+python-multipart
+langchain-text-splitters
